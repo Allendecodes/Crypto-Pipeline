@@ -22,7 +22,7 @@ jobs:
         run: pip install requests pandas
 
       - name: Run the pipeline
-        run: python Fetch_prices.py
+        run: python fetch_prices.py
 
       - name: Commit and push updated database
         run: |
