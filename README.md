@@ -1,4 +1,4 @@
-# CryptoPulse — Full-Stack Cryptocurrency Analytics Platform
+# CryptoPulse —  Cryptocurrency Analytics Platform
 
 CryptoPulse is an end-to-end cryptocurrency data platform that automatically collects market data from the CoinGecko API, transforms and validates the response, stores historical observations in SQLite, exposes the data through a Flask REST API, and visualizes it through an interactive web dashboard.
 
