@@ -1,115 +1,380 @@
-# Crypto Price Data Pipeline
+# CryptoPulse — Full-Stack Cryptocurrency Analytics Platform
 
-An automated data pipeline that fetches live cryptocurrency prices from a public API, cleans and validates the data, stores it persistently in a SQL database, and runs on a daily schedule with no manual intervention — using GitHub Actions.
+CryptoPulse is an end-to-end cryptocurrency data platform that automatically collects market data from the CoinGecko API, transforms and validates the response, stores historical observations in SQLite, exposes the data through a Flask REST API, and visualizes it through an interactive web dashboard.
 
-## Why I built this
+The project combines **data engineering, backend development, database design, frontend development, and workflow automation** in one application.
 
-Most beginner AI/ML portfolios show only the modeling side of the pipeline — a notebook trained on a static Kaggle CSV. In real AI/DS roles, a large part of the work is getting live, messy, ever-changing data into a usable form *before* any model ever sees it. This project demonstrates that other half: API integration, data cleaning, persistent storage, error handling, and automation — the full lifecycle a production data system actually needs.
+## Architecture
 
-## Tech stack
+```
+                         CoinGecko API
+                              │
+                              ▼
+                    Python Data Pipeline
+                    Requests + Pandas
+                              │
+                       Cleaned data
+                              │
+                              ▼
+                    SQLite: crypto_data.db
+                              │
+                         SQL queries
+                              │
+                              ▼
+                    Flask REST API
+                    /api/latest
+                    /api/prices
+                              │
+                            JSON
+                              │
+                              ▼
+                  HTML + CSS + JavaScript
+                         + Chart.js
+                              │
+                              ▼
+                    CryptoPulse Dashboard
 
-- **Python** — core language
-- **requests** — API calls
-- **pandas** — data cleaning and transformation
-- **SQLite** — persistent structured storage
-- **GitHub Actions** — daily automation (cron-based scheduling)
+                    GitHub Actions
+                         │
+                         └── Scheduled ingestion
+                             every 5 minutes
+```
 
-## How it works
+## What the application does
 
-1. **Fetch** — calls the [CoinGecko API](https://www.coingecko.com/en/api) to get live price, market cap, 24h volume, and 24h change for Bitcoin, Ethereum, and Solana.
-2. **Clean** — the API returns nested JSON; this step flattens it into a structured table with pandas, converts Unix timestamps into readable dates, and safely handles any missing fields.
-3. **Store** — cleaned rows are inserted into a SQLite database (`crypto_data.db`), using a composite primary key of `(coin, last_updated)` so the same price update is never stored twice, while genuinely new price data is always added.
-4. **Automate** — a GitHub Actions workflow (`.github/workflows/daily_fetch.yml`) runs this entire pipeline once a day on a fresh virtual machine, then commits the updated database back to the repository so history accumulates over time.
+1. **Fetches** cryptocurrency market data for Bitcoin, Ethereum, and Solana from CoinGecko.
+2. **Transforms** nested JSON responses into structured records using Python and Pandas.
+3. **Validates and timestamps** the incoming records.
+4. **Stores** historical observations in SQLite.
+5. **Exposes** stored data through Flask REST endpoints.
+6. **Visualizes** current and historical market information in a browser dashboard.
+7. **Automates** data ingestion using GitHub Actions.
 
-## Key design decisions
+## Dashboard
 
-**Why SQLite instead of a hosted database?**
-SQLite requires no server setup and stores the entire database as a single file, making it ideal for a portfolio-scale project. In a production system with concurrent writers or larger scale, I'd move this to a hosted database like PostgreSQL — noted below as a future improvement.
+The CryptoPulse dashboard displays:
 
-**Why `(coin, last_updated)` as the primary key, not just `coin`?**
-Prices update continuously. Using just `coin` as the key would mean only ever storing one row per coin, overwriting history. Using the combination of coin *and* its last-updated timestamp means every genuinely new price point gets stored, while running the script twice in quick succession (before the price has changed) won't create duplicate rows — `INSERT OR IGNORE` silently skips those.
+- Current BTC, ETH, and SOL prices
+- 24-hour percentage changes
+- Market capitalization
+- 24-hour trading volume
+- Historical price trends
+- Automatic dashboard refresh
+- Latest data timestamp
 
-**Why does the GitHub Actions workflow commit the database file back to the repo?**
-Every GitHub Actions run starts from a completely fresh, empty environment — nothing persists between runs by default. Without committing the updated `.db` file back after each run, the pipeline would silently reset to zero every single day instead of building a real price history. This was a real bug I had to diagnose and fix during development (see below).
+The dashboard is periodically refreshed rather than being a tick-by-tick trading feed. The ingestion workflow runs every 5 minutes.
 
-## Error handling
+## Tech Stack
 
-The pipeline is built to fail gracefully rather than crash silently:
-- API requests have a timeout and are wrapped in exception handling — if CoinGecko is unreachable or returns a bad status, the script logs a clear message and exits cleanly instead of throwing an unhandled error.
-- Each coin's data is processed individually inside its own try/except — if one coin has malformed data, it's skipped while the rest are still processed.
-- Database operations are wrapped with a `finally` block to guarantee the connection is always closed properly, even if an error occurs mid-write.
+| Layer | Technology |
+|---|---|
+| External data | CoinGecko API |
+| Data ingestion | Python, Requests |
+| Data processing | Pandas |
+| Database | SQLite |
+| Backend | Flask |
+| API format | REST / JSON |
+| Frontend | HTML, CSS, JavaScript |
+| Visualization | Chart.js |
+| Automation | GitHub Actions |
+| Production server configuration | Gunicorn |
 
-## A real bug I hit (and why it happened)
+## Backend API
 
-During setup, the GitHub Actions run failed with `No such file or directory` even though the script ran fine locally. The cause: my local file was named `Fetch_prices.py` (capital F), but the workflow called `python fetch_prices.py` (lowercase). This worked on my Mac because macOS filesystems are case-insensitive — but GitHub Actions runs on Ubuntu Linux, where filenames **are** case-sensitive, so the two names pointed to genuinely different (and in this case, non-existent) files. This is a good example of a class of bug that only appears when moving from local development to a Linux-based deployment environment.
+### Get latest prices
 
-## How to run it locally
+```
+GET /api/latest
+```
+
+Returns the latest stored observation for each cryptocurrency.
+
+Example:
+
+```json
+[
+  {
+    "coin": "bitcoin",
+    "price_usd": 82787,
+    "change_24h_pct": -2.24
+  }
+]
+```
+
+### Get historical prices
+
+```
+GET /api/prices
+```
+
+Returns stored historical records used to build the price-history chart.
+
+## Data Model
+
+The SQLite database contains a `prices` table with fields including:
+
+```
+coin
+price_usd
+market_cap_usd
+volume_24h_usd
+change_24h_pct
+last_updated
+fetched_at
+```
+
+The design uses **(coin, last_updated)** as the composite primary key.
+
+This allows the database to retain historical observations:
+
+```
+bitcoin | 10:00 | $82,000
+bitcoin | 10:05 | $82,100
+bitcoin | 10:10 | $82,250
+```
+
+while preventing the same observation from being inserted repeatedly.
+
+## End-to-End Data Flow
+
+Suppose the dashboard displays:
+
+```
+BTC
+$82,787
+-2.24%
+```
+
+That value passes through the following flow:
+
+```
+1. CoinGecko provides the market data
+             ↓
+2. fetch_prices.py requests the API
+             ↓
+3. Python receives nested JSON
+             ↓
+4. Pandas transforms it into structured records
+             ↓
+5. SQLite stores the observation
+             ↓
+6. Flask queries SQLite
+             ↓
+7. /api/latest returns JSON
+             ↓
+8. JavaScript calls the endpoint
+             ↓
+9. The frontend updates the BTC card
+             ↓
+10. The user sees the value in CryptoPulse
+```
+
+The historical chart follows a similar path through `/api/prices`, after which Chart.js converts the returned timestamps and prices into a time-series visualization.
+
+## Automation with GitHub Actions
+
+The workflow is located at:
+
+```
+.github/workflows/daily_fetch.yml
+```
+
+It is scheduled to run every 5 minutes.
+
+The workflow:
+
+```
+GitHub Actions
+      ↓
+Checkout repository
+      ↓
+Install dependencies
+      ↓
+Run fetch_prices.py
+      ↓
+Update crypto_data.db
+      ↓
+Commit updated database
+```
+
+The database is committed back to the repository because GitHub Actions runners are temporary. Without persistence outside the runner, the updated SQLite database would be lost after the workflow finished.
+
+## Error Handling
+
+The ingestion pipeline includes:
+
+- Request timeouts
+- HTTP error handling
+- Exception handling around external API requests
+- Per-coin processing so one malformed record does not necessarily stop the complete batch
+- Database cleanup using connection handling
+- Duplicate prevention using the composite primary key
+
+## Why These Technologies?
+
+### Why Flask?
+
+The application needs a lightweight backend with a small number of REST endpoints and database operations. Flask provides this without the overhead of a larger web framework.
+
+### Why SQLite?
+
+SQLite is serverless and stores the database in a single file, making it appropriate for a lightweight portfolio application. For a production system with higher concurrency and scale, PostgreSQL would be a better choice.
+
+### Why Pandas?
+
+The CoinGecko response is nested JSON. Pandas makes it convenient to transform the response into structured records before database insertion.
+
+### Why a backend API?
+
+The frontend does not directly access CoinGecko or the SQLite database. Flask provides a clean separation:
+
+```
+Frontend
+   ↓
+Flask REST API
+   ↓
+Database
+```
+
+This makes the application easier to extend and allows the data layer to remain independent of the presentation layer.
+
+## Running Locally
+
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/Allendecodes/Crypto-Pipeline.git
 cd Crypto-Pipeline
-python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
-pip install requests pandas
-python fetch_prices.py
 ```
 
-This will fetch the latest prices and append them to `crypto_data.db`.
+### 2. Create a virtual environment
 
-## What I'd improve with more time
-
-- Move from SQLite to a hosted database (PostgreSQL) for concurrent access and real production scale
-- Add more coins and configurable coin lists instead of a hardcoded list
-- Add alerting (e.g., an email or Slack message) if the daily pipeline run fails
-- Add a lightweight dashboard (Streamlit) to visualize price trends over time directly from the stored data
-- Add automated tests for the cleaning and insertion logic
-
-## What this project demonstrates
-
-- Working with real, live external APIs (authentication-free, rate-limited)
-- Data cleaning and validation with pandas
-- Relational database design fundamentals (schema design, primary keys, parameterized queries to prevent SQL injection)
-- Production-minded error handling
-- CI/CD-style automation with GitHub Actions, including diagnosing and fixing a real cross-platform deployment bug
-
-
-## Live dashboard
-
-The project now includes a Flask web application that turns the stored SQLite data into a full-stack crypto dashboard.
-
-### Architecture
-
-```
-CoinGecko API
-     ↓
-Python ingestion pipeline
-     ↓
-Pandas cleaning / validation
-     ↓
-SQLite (crypto_data.db)
-     ↓
-Flask REST API
-     ↓
-HTML + Chart.js dashboard
+```bash
+python3 -m venv venv
+source venv/bin/activate
 ```
 
-### Dashboard features
-
-- BTC, ETH and SOL latest prices
-- 24-hour percentage change
-- Market capitalization and 24-hour volume
-- Historical price chart from the SQLite database
-- REST endpoints: `/api/latest` and `/api/prices`
-- Automatic dashboard refresh
-- GitHub Actions ingestion every 5 minutes
-
-### Run locally
+### 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
+```
+
+### 4. Start the Flask application
+
+```bash
 python app.py
 ```
 
-Open `http://localhost:5000`.
+By default, Flask runs on:
 
-For a portfolio deployment, host the Flask app on a service such as Render or Railway. GitHub Actions remains responsible for collecting and storing the price history.
+```
+http://localhost:5000
+```
+
+If port 5000 is already in use, run the application on another port, for example:
+
+```bash
+python -c "from app import app; app.run(host='0.0.0.0', port=5001, debug=True)"
+```
+
+Then open:
+
+```
+http://localhost:5001
+```
+
+### 5. Run the ingestion pipeline manually
+
+If new data needs to be collected manually:
+
+```bash
+python fetch_prices.py
+```
+
+Then refresh the dashboard.
+
+## Project Structure
+
+```
+Crypto-Pipeline/
+│
+├── app.py                         # Flask backend and REST APIs
+├── fetch_prices.py                # CoinGecko ingestion pipeline
+├── crypto_data.db                 # SQLite database
+├── requirements.txt               # Python dependencies
+├── Procfile                       # Gunicorn start command
+├── templates/
+│   └── index.html                 # Dashboard frontend
+├── .github/
+│   └── workflows/
+│       └── daily_fetch.yml        # Automated ingestion workflow
+└── README.md
+```
+
+## Key Engineering Decisions
+
+### Historical storage instead of overwriting
+
+The system stores observations instead of keeping only the current price. This makes historical visualization possible.
+
+### Composite primary key
+
+`(coin, last_updated)` identifies an individual observation and prevents duplicate records.
+
+### Separation of concerns
+
+The project separates:
+
+- Data ingestion
+- Data transformation
+- Data persistence
+- Backend/API logic
+- Frontend presentation
+- Workflow automation
+
+This makes each component easier to understand and modify independently.
+
+## Future Improvements
+
+For a production-oriented version, I would:
+
+- Migrate SQLite to PostgreSQL
+- Add database indexes optimized for time-series queries
+- Add retry logic with exponential backoff for external API failures
+- Add automated unit and integration tests
+- Add API authentication/rate limiting where appropriate
+- Add monitoring and alerting for failed pipeline runs
+- Add WebSockets or Server-Sent Events for genuinely real-time updates
+- Containerize the application using Docker
+- Add configurable cryptocurrency selection instead of a fixed list
+- Deploy the Flask application using a production WSGI server
+
+## What This Project Demonstrates
+
+- External REST API integration
+- Python data ingestion
+- JSON transformation and data cleaning
+- Pandas data processing
+- SQL and relational database fundamentals
+- Composite keys and duplicate prevention
+- Flask REST API development
+- Frontend-to-backend communication
+- JavaScript asynchronous API calls
+- Data visualization with Chart.js
+- Automated workflows with GitHub Actions
+- Error handling and production-minded design decisions
+
+## Project Demo
+
+The application can be demonstrated locally through the Flask dashboard:
+
+```
+http://localhost:5001
+```
+
+The repository contains the complete source code and automation workflow.
+
+---
+
+**Built as an end-to-end cryptocurrency data engineering and full-stack analytics project.**
