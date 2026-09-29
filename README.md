@@ -71,3 +71,45 @@ This will fetch the latest prices and append them to `crypto_data.db`.
 - Relational database design fundamentals (schema design, primary keys, parameterized queries to prevent SQL injection)
 - Production-minded error handling
 - CI/CD-style automation with GitHub Actions, including diagnosing and fixing a real cross-platform deployment bug
+
+
+## Live dashboard
+
+The project now includes a Flask web application that turns the stored SQLite data into a full-stack crypto dashboard.
+
+### Architecture
+
+```
+CoinGecko API
+     ↓
+Python ingestion pipeline
+     ↓
+Pandas cleaning / validation
+     ↓
+SQLite (crypto_data.db)
+     ↓
+Flask REST API
+     ↓
+HTML + Chart.js dashboard
+```
+
+### Dashboard features
+
+- BTC, ETH and SOL latest prices
+- 24-hour percentage change
+- Market capitalization and 24-hour volume
+- Historical price chart from the SQLite database
+- REST endpoints: `/api/latest` and `/api/prices`
+- Automatic dashboard refresh
+- GitHub Actions ingestion every 5 minutes
+
+### Run locally
+
+```bash
+pip install -r requirements.txt
+python app.py
+```
+
+Open `http://localhost:5000`.
+
+For a portfolio deployment, host the Flask app on a service such as Render or Railway. GitHub Actions remains responsible for collecting and storing the price history.
