@@ -22,7 +22,16 @@ jobs:
         run: pip install requests pandas
 
       - name: Run the pipeline
-        run: python fetch_prices.py
+        run: |
+          if [ -f fetch_prices.py ]; then
+            python fetch_prices.py
+          elif [ -f Fetch_prices.py ]; then
+            python Fetch_prices.py
+          else
+            echo "No fetch script found in repository root."
+            ls -la
+            exit 1
+          fi
 
       - name: Commit and push updated database
         run: |
